@@ -8,12 +8,16 @@
 #define IN2 21
 #define SENSOR_PIN A0
 
-
 // ******** <TODO> **********************
 // ******** define interval between recomputing error and adjusting feedback (in milliseconds) ********************** 
 const int INTERVAL = 10; 
+const float DINTERVAL = INTERVAL * 0.001;
+const int CUTOFF_SPEED = 40;
+const float ACCURACY = 1024 / 360 * 2;
 const float MAX_SPEED = 255.0;
 const float MIN_SPEED = -255.0;
+const int INTEGRAL_U_LIMIT = 100;
+const int INTEGRAL_L_LIMIT = -100;
 
 unsigned long previousTime = 0;
 
@@ -60,36 +64,36 @@ void loop()
 
         unsigned long currentMillis = millis();
         
+        
         if(currentMillis - previousMillis >= INTERVAL){
-          //setMovement(-38); //38 minimum
           Serial.println(pos);
+          readInput();
+          //setMovement(-38); //38 minimum
+          
+          oldPos = pos;
           updatePosition();
-          if(abs(pos - target) > (1024 / 360 * 3)){            
+          if(abs(pos - target) > ACCURACY){            
             update();
           }
-          readInput();
           previousMillis = currentMillis;
         }
 }
 
 void update(){
-  oldPos = pos;
   float error = target-pos;
   prev_err = error;
   
   float temp = oldPos - pos;
   
   float prop = error * kp;
-  prop = abs(prop) < 38 ? 40 * sign(prop) : prop;
-  integral = ki == 0 ? 0 : integral + error * ki * INTERVAL - kp * temp;
-  integral = integral > MAX_SPEED ? MAX_SPEED : integral;
-  integral = integral < MIN_SPEED ? MIN_SPEED : integral;
+  prop = abs(prop) < CUTOFF_SPEED ? CUTOFF_SPEED * sign(prop) : prop;
+  integral = ki == 0 ? 0 : integral + error * (ki / DINTERVAL) - kp * temp;
+  integral = integral > INTEGRAL_U_LIMIT ? INTEGRAL_U_LIMIT : (integral < INTEGRAL_L_LIMIT ? INTEGRAL_L_LIMIT : integral);
   
-  float derivative = temp * kd / INTERVAL;
+  float derivative = temp * (kd * DINTERVAL);
   
   float output = prop + integral - derivative;
-  output = output > MAX_SPEED ? MAX_SPEED : output;
-  output = output < MIN_SPEED ? MIN_SPEED : output;
+  output = output > MAX_SPEED ? MAX_SPEED : output < MIN_SPEED ? MIN_SPEED : output;
   setMovement(output);
 }
 
@@ -137,11 +141,7 @@ void readInput()
             // change the target value that the motor should rotate to
             valueString = commandString.substring(7, commandString.length());
             target = (int) valueString.toInt();
-            if(target>1024){
-              target = 1024;
-            } else if(target<0){
-              target = 0;
-            }
+            target = target > 1024 ? 1024 : target < 0 ? 0 : target;
             integral = 0;
             prev_err = 0;
             //  ******** <TODO> **********************
