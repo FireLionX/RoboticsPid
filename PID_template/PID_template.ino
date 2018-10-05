@@ -16,7 +16,7 @@ const int INTERVAL = 20;
 
 unsigned long previousTime = 0;
 
-int motorSpeed = 0; // speed of the motor, values between 0 and 255
+//int motorSpeed = 0; // speed of the motor, values between 0 and 255
 
 int target = 512; // position (as read by potentiometer) to move the motor to, default value 512
 
@@ -30,6 +30,9 @@ String commandString, valueString; // strings to read commands from the serial p
 
 int pos = 0; // current position for plotting
 
+float prev_err=0;
+float integral=0;
+
 // setup code, setting pin modes and initialising the serial connection
 void setup() 
 {
@@ -42,6 +45,7 @@ void setup()
     pinMode(SENSOR_PIN, INPUT);   
 }
 
+unsigned long previousMillis = 0;
 void loop() 
 {
         //  ******** <TODO> **********************
@@ -50,34 +54,28 @@ void loop()
         //     if you wish to update PID parameters from with python script **********************
 
         // sending the current position to the serial connection so that it can be plotted
-        Serial.println(pos);
-        updatePosition();
-        //setMovement(-38); //38 minimum
-        readInput();
-        if(abs(pos - target) > 10){
+
+        unsigned long currentMillis = millis();
+        if(currentMillis - previousMillis >= INTERVAL){
+          Serial.println(pos);
+          updatePosition();
+          //setMovement(-38); //38 minimum
+          readInput();
+          previousMillis = currentMillis;
           update();
-          setMovement(motorSpeed);
-        } else{
-          setMovement(0);
         }
 }
 
-int prev_err=0;
-int integral=0;
 void update(){
-  int error = target-pos;
-  int direct = sign(error);
-  int prop = error * kp;
-  integral += error * INTERVAL * ki;
-  int derivative = (error - prev_err) * kd / INTERVAL;
+  float error = target-pos;
+  float prop = error * kp;
+  integral += error * ki;
+  float derivative = (error - prev_err) * kd;
   prev_err = error;
-  int output = prop + integral + derivative;
-  motorSpeed = calculate_Speed(direct*output);
+  float output = prop + integral - derivative;
+  setMovement(output);
 }
 
-int calculate_Speed(int value){
-  return value >= 0 ? value : -value;
-}
 int sign(int value)
 {
   if (value == 0) return 0;
@@ -86,12 +84,13 @@ int sign(int value)
 
 void updatePosition()
 {
-  pos = analogRead(0);
+  pos = analogRead(SENSOR_PIN);
 }
 
 // method to set direction and speed of the motor
-void setMovement(int speed1) 
+void setMovement(float speed1) 
 {
+  
   speed1 = speed1 > 255 ? 255 : speed1;
   speed1 = speed1 < -255 ? -255 : speed1;
   int dir = sign(speed1);
@@ -123,7 +122,13 @@ void readInput()
             // change the target value that the motor should rotate to
             valueString = commandString.substring(7, commandString.length());
             target = (int) valueString.toInt();
-            
+            if(target>1024){
+              target = 1024;
+            } else if(target<0){
+              target = 0;
+            }
+            integral = 0;
+            prev_err = 0;
             //  ******** <TODO> **********************
             //  ******** reset the integral **********************
             
@@ -131,14 +136,23 @@ void readInput()
             // change the value of the proportional gain parameter
             valueString = commandString.substring(3, commandString.length());
             kp = valueString.toFloat();
+            if(kp<0){
+              kp=0;
+            }
         } else if (commandString.startsWith("ki")) {
             // change the value of the integral gain parameter
             valueString = commandString.substring(3, commandString.length());
             ki = valueString.toFloat();
+            if(ki<0){
+              ki=0;
+            }
         } else if (commandString.startsWith("kd")) {
             // change the value of the derivative gain parameter
             valueString = commandString.substring(3, commandString.length());
             kd = valueString.toFloat();
+            if(kd<0){
+              kd=0;
+            }
         }
     }
 }
